@@ -94,13 +94,14 @@ type Query struct {
 	order      []order
 	projection []string
 
-	distinct bool
-	keysOnly bool
-	eventual bool
-	limit    int32
-	offset   int32
-	start    []byte
-	end      []byte
+	distinct   bool
+	distinctOn []string
+	keysOnly   bool
+	eventual   bool
+	limit      int32
+	offset     int32
+	start      []byte
+	end        []byte
 
 	trans *Transaction
 
@@ -256,6 +257,15 @@ func (q *Query) Distinct() *Query {
 	return q
 }
 
+// DistinctOn returns a derivative query that yields de-duplicated entities with
+// respect to the set of the specified fields. It is only used for projection
+// queries. The field list must be a subset of the projected field list.
+func (q *Query) DistinctOn(fieldNames ...string) *Query {
+	q = q.clone()
+	q.distinctOn = fieldNames
+	return q
+}
+
 // KeysOnly returns a derivative query that yields only keys, not keys and
 // entities. It cannot be used with projection queries.
 func (q *Query) KeysOnly() *Query {
@@ -311,6 +321,9 @@ func (q *Query) toProto(req *pb.RunQueryRequest) error {
 	if len(q.projection) != 0 && q.keysOnly {
 		return errors.New("datastore: query cannot both project and be keys-only")
 	}
+	if len(q.distinctOn) != 0 && q.distinct {
+		return errors.New("datastore: query cannot be both distinct and distinct-on")
+	}
 	dst := &pb.Query{}
 	if q.kind != "" {
 		dst.Kind = []*pb.KindExpression{{Name: q.kind}}
@@ -318,6 +331,12 @@ func (q *Query) toProto(req *pb.RunQueryRequest) error {
 	if q.projection != nil {
 		for _, propertyName := range q.projection {
 			dst.Projection = append(dst.Projection, &pb.Projection{Property: &pb.PropertyReference{Name: propertyName}})
+		}
+
+		if q.distinctOn != nil {
+			for _, propertyName := range q.distinctOn {
+				dst.DistinctOn = append(dst.DistinctOn, &pb.PropertyReference{Name: propertyName})
+			}
 		}
 
 		if q.distinct {
